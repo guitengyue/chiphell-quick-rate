@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chiphell 快速评分</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header>
+      <img src="icons/icon-48.png" alt="">
+      <div>
+        <h1>快速评分</h1>
+        <p>Chiphell 评分助手 · v1.4.0</p>
+      </div>
+      <label class="switch" title="启用扩展">
+        <input id="enabled" type="checkbox">
+        <span></span>
+      </label>
+    </header>
+
+    <section>
+      <label class="field" for="score">
+        <span>默认分数</span>
+        <select id="score">
+          <option value="10">+10</option>
+          <option value="9">+9</option>
+          <option value="8">+8</option>
+          <option value="7">+7</option>
+          <option value="6">+6</option>
+          <option value="5">+5</option>
+          <option value="4">+4</option>
+          <option value="3">+3</option>
+          <option value="2">+2</option>
+          <option value="1">+1</option>
+        </select>
+      </label>
+
+      <label class="check-row" for="blessingsEnabled">
+        <span>
+          <strong>随机祝福语</strong>
+          <small>单条和批量评分时自动填写理由</small>
+        </span>
+        <input id="blessingsEnabled" type="checkbox">
+      </label>
+
+      <label class="check-row" for="notifyAuthor">
+        <span>
+          <strong>通知作者</strong>
+          <small>评分时自动勾选</small>
+        </span>
+        <input id="notifyAuthor" type="checkbox">
+      </label>
+
+      <label class="check-row" for="autoSubmit">
+        <span>
+          <strong>单条自动提交已停用</strong>
+          <small>单条评分请在原生弹窗确认</small>
+        </span>
+        <input id="autoSubmit" type="checkbox" disabled>
+      </label>
+
+      <label class="field" for="bulkDelay">
+        <span><strong>批量间隔</strong><small>降低连续请求频率</small></span>
+        <select id="bulkDelay">
+          <option value="1000">1 秒</option>
+          <option value="1500">1.5 秒</option>
+          <option value="2500">2.5 秒</option>
+          <option value="4000">4 秒</option>
+        </select>
+      </label>
+    </section>
+
+    <div class="actions">
+      <button id="ratePage" type="button">本页所有人</button>
+      <button id="rateThread" type="button">整帖所有人</button>
+    </div>
+    <button id="apply" class="secondary" type="button">重新生成祝福并填写</button>
+    <p id="status" role="status">设置会自动保存</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+.chh-quick-rate-button {
+  box-sizing: border-box;
+  min-width: 64px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 8px;
+  border: 1px solid #d9a122;
+  border-radius: 4px;
+  color: #513700;
+  background: #ffd96a;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 65%) inset;
+  font: 600 12px/22px "Microsoft YaHei", Arial, sans-serif;
+  letter-spacing: 0;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.chh-quick-rate-button:hover {
+  border-color: #b87b00;
+  background: #ffcc3b;
+}
+
+.chh-quick-rate-button:active {
+  transform: translateY(1px);
+}
+
+.chh-quick-rate-button span {
+  margin-right: 1px;
+}
+
+.chh-online-time {
+  margin-left: 6px;
+  color: #616970;
+  font: 12px/1.5 "Microsoft YaHei", sans-serif;
+  vertical-align: middle;
+}
+
+.chh-review { margin-top: 6px; }
+.chh-review ul { max-height: 8em; overflow: auto; padding-left: 18px; }
+
+.chh-quick-rate-button:disabled {
+  border-color: #bfc3c8;
+  color: #71757b;
+  background: #eceef1;
+  cursor: default;
+}
+
+.chh-quick-rate-status {
+  margin: 8px 12px;
+  padding: 7px 10px;
+  border-left: 3px solid #d9a122;
+  color: #5d4308;
+  background: #fff8dd;
+  font: 12px/1.5 "Microsoft YaHei", Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+.chh-quick-rate-bulk {
+  position: fixed;
+  z-index: 99999;
+  right: 18px;
+  bottom: 18px;
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 36px));
+  padding: 12px;
+  border: 1px solid #bfc3c8;
+  border-radius: 6px;
+  color: #24272c;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
+  font: 12px/1.5 "Microsoft YaHei", Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+.chh-bulk-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+.chh-bulk-close { width: 24px; height: 24px; padding: 0; border: 0; color: #666b73; background: transparent; font-size: 20px; line-height: 24px; cursor: pointer; }
+.chh-bulk-status { min-height: 20px; white-space: normal; overflow-wrap: anywhere; }
+.chh-bulk-track { overflow: hidden; height: 6px; margin: 7px 0; border-radius: 3px; background: #e6e8eb; }
+.chh-bulk-track span { display: block; width: 0; height: 100%; background: #d49a00; transition: width 180ms ease; }
+.chh-bulk-counts { color: #6b7078; }
+.chh-bulk-cancel { width: 100%; height: 30px; margin-top: 9px; border: 1px solid #c8ccd2; border-radius: 4px; color: #34383e; background: #f7f8fa; cursor: pointer; }

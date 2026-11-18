@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Chiphell 快速评分测试页</title>
+  <link rel="stylesheet" href="../content.css">
+  <style>
+    body { margin: 30px; color: #333; font-family: Arial, sans-serif; }
+    table { width: 760px; border: 1px solid #ddd; }
+    td { padding: 18px; }
+    #rateform { width: 480px; margin-top: 24px; padding: 16px; border: 1px solid #bbb; }
+    #rateform label { display: block; margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <table id="pid10001">
+    <tr><td class="pls"><a href="space-uid-88.html">测试作者</a><dl><dt>在线时间</dt><dd>128 小时</dd></dl></td><td>这是一条测试回复。</td></tr>
+    <tr><td></td><td><a href="javascript:;" onclick="showWindow('rate', 'forum.php?mod=misc&amp;action=rate&amp;tid=99&amp;pid=10001', 'get', -1);return false;">评分</a></td></tr>
+  </table>
+  <form id="rateform" action="forum.php?mod=misc&amp;action=rate&amp;ratesubmit=yes&amp;infloat=yes">
+    <label>分数 <input id="score1" name="score1" value="0"></label>
+    <label>理由 <input id="reason" name="reason"></label>
+    <label><input id="sendreasonpm" name="sendreasonpm" type="checkbox"> 通知作者</label>
+    <p class="o pns"><button name="ratesubmit" type="submit">确定</button></p>
+  </form>
+  <script>
+    window.showWindow = () => {};
+    window.chrome = {
+      storage: {
+        sync: { get: (defaults, callback) => callback(defaults) },
+        onChanged: { addListener: () => {} }
+      },
+      runtime: { onMessage: { addListener: () => {} } }
+    };
+  </script>
+  <script src="../forum-response.js"></script>
+  <script src="../online-time.js"></script>
+  <script src="../content.js"></script>
+</body>
+</html>
