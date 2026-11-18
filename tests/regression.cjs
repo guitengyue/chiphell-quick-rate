@@ -168,7 +168,7 @@ async function quotaScenario(total, score, expected, opts = {}) {
   const pageVisits = [], submitted = new Set(), checked = new Set(), confirms = [];
   let quoteCount = 0;
   const pageHtml = page => header +
-    '<div class="pg"><strong>' + page + '</strong><a href="thread-99-4-1.html">4</a></div>' +
+    '<div class="pg"><strong>' + page + '</strong><a href="thread-99-' + (opts.long ? 700 : 4) + '-1.html">' + (opts.long ? 700 : 4) + '</a></div>' +
     ids.slice((page - 1) * 20, page * 20).map(id => post(id, id)).join("");
   const app = setup(pageHtml(1), 1, async (input, options = {}) => {
     const url = new URL(input);
@@ -186,7 +186,7 @@ async function quotaScenario(total, score, expected, opts = {}) {
       checked.add(id);
       if (submitted.has(id) || (opts.skipFirst && id === "100")) return response(logs(7), true);
       if (opts.noSession) return response('<form name="login" id="loginform_example"></form>', true);
-      if (opts.unreadable) return response("<div>无法获取明细</div>", true);
+      if (opts.unreadable || (opts.resume && Number(id) < 120)) return response("<div>无法获取明细</div>", true);
       if (opts.fullPage && url.searchParams.has("inajax")) return response("<div>未知格式</div>", true);
       if (opts.fullPage) return response('<div id="messagetext"><p>抱歉，指定帖子在近一年内没有评分记录</p><p>返回上一页</p></div>');
       return response('抱歉，指定帖子在近一年内没有评分记录<script>void(0)</script>', true);
@@ -212,11 +212,21 @@ async function quotaScenario(total, score, expected, opts = {}) {
     assert.deepEqual(pageVisits, opts.pages ?? (total < score || opts.cancel ? [] : [1]));
     if (!total || total < score || opts.cancel) assert.equal(checked.size, 0);
     if (opts.noSession) assert.match(status, /登录或验证/);
-    else if (opts.unreadable) {
+    else if (opts.unreadable || opts.resume) {
       assert.match(status, /核查人数上限/);
       assert.equal(checked.size, Math.floor(total / score));
     }
     else if (!opts.cancel) assert.match(status, /额度不足/);
+    if (opts.resume) {
+      checked.clear();
+      const resume = app.w.document.querySelector(".chh-bulk-resume");
+      if (resume) resume.click();
+      else app.message({ type: "CHH_BULK_RATE", scope: "thread" }, {}, () => {});
+      await waitFor(() => confirms.length >= 2 && app.w.document.querySelector(".chh-bulk-cancel")?.hidden);
+      assert.equal(submitted.size, 20, "second batch must move beyond the first 20 unresolved authors");
+      assert.ok([...checked].every(id => Number(id) >= 120), "do not recheck earlier unresolved UIDs");
+      assert.equal(app.w.document.querySelector(".chh-bulk-resume")?.hidden, true);
+    }
     if (total >= score) assert.match(confirms[0], new RegExp("最多可加 " + Math.floor(Math.min(100,total)/score) + " 人"));
   } finally { app.close(); }
   console.log("PASS quota", total, score, expected, JSON.stringify(opts));
@@ -282,6 +292,8 @@ async function popup() {
   await quotaScenario(8, 5, 1, { manual: true });
   await quotaScenario(23, 5, 0, { noSession: true });
   await quotaScenario(100, 5, 0, { unreadable: true });
+  await quotaScenario(100, 5, 0, { resume: true });
+  await quotaScenario(5, 5, 1, { long: true });
   await ui();
   await popup();
   const ext = extension();

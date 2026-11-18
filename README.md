@@ -2,13 +2,13 @@
 
 适用于 Edge 和 Chrome 的论坛评分扩展。可为单个楼层填写分数和理由，也可按作者给本页或整帖的回复加分。
 
-**[下载 v1.4.0 安装包](https://github.com/guitengyue/chiphell-quick-rate/raw/refs/heads/main/downloads/chiphell-quick-rate-1.4.0.zip)** · [查看更新说明](https://github.com/guitengyue/chiphell-quick-rate/blob/main/CHANGELOG.md)
+**[下载 v1.4.1 安装包](https://github.com/guitengyue/chiphell-quick-rate/raw/refs/heads/main/downloads/chiphell-quick-rate-1.4.1.zip)** · [查看更新说明](https://github.com/guitengyue/chiphell-quick-rate/blob/main/CHANGELOG.md)
 
 ## 安装与升级
 
 1. 把 ZIP 解压到一个固定文件夹，确认能在里面看到 `manifest.json`。
 2. 在 Edge 打开 `edge://extensions/`，或在 Chrome 打开 `chrome://extensions/`，开启开发者模式，选择“加载已解压的扩展程序”，选中该文件夹。
-3. **已有旧版时，直接覆盖原文件夹里的文件**，在原扩展卡片点“重新加载”，再刷新论坛帖子。这样可以沿用本机评分历史和设置。打开插件弹窗，标题下方应显示 v1.4.0。
+3. **已有旧版时，直接覆盖原文件夹里的文件**，在原扩展卡片点“重新加载”，再刷新论坛帖子。这样可以沿用本机评分历史和设置。打开插件弹窗，标题下方应显示 v1.4.1。
 
 ## 单条评分
 
@@ -22,6 +22,8 @@
 - 确认后按页寻找作者。多页帖子按候选人的 UID 核查该作者在整帖的回复，包括没有评分按钮的楼层。已加过的作者会跳过。余额不足一次加分时停止翻页。
 - 核实不了的作者会列入“待核对”并注明原因。每个新遇到的待核对作者占一个本轮核查名额，实际积分不扣。这样遇到一整串无法识别的记录时，也会在本轮人数上限处结束。
 - 同一浏览器扩展记录当前评分账号、主题和作者 UID。批量提交前先登记，提交后到论坛记录核实。若结果不明，再次批量运行会跳过该笔登记。不同设备、不同扩展副本及手动同时评分不共享本机登记。
+
+在当前帖子标签页内，达到本轮核查人数上限后，点击面板上的“继续核查下一批”，即可从原位置处理后续作者。每一批都会重新确认余额。刷新帖子会重置续查位置。
 
 ## 测试
 

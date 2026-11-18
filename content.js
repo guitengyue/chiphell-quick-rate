@@ -28,6 +28,7 @@
   let lastBlessing = "";
   let mutationQueued = false;
   let bulkJob = null;
+  let pausedThread = null;
   const ratedAuthors = new Set();
 
   function currentUid(doc = document) {
@@ -225,26 +226,26 @@
       if (currentUid(doc) !== me || !doc.querySelector('table[id^="pid"]')) throw new Error("未能读取已登录的帖子页，请刷新帖子后重试");
       const count = getPageCount(doc, tid);
       const active = doc.querySelector(".pg strong")?.textContent.trim();
-      if ((active && Number(active) !== page) || count > 500) throw new Error("帖子分页无法核对");
-      if (author && count > 1 && !active) { yield { posts: [], page, count, incomplete: true }; return; }
+      if (active && Number(active) !== page) throw new Error("帖子分页无法核对");
+      if (author && (count > 500 || (count > 1 && !active))) { yield { posts: [], page, count, incomplete: true }; return; }
       if (author && doc.querySelector(".pg a[href]") && Array.from(doc.querySelectorAll(".pg a[href]")).some(a => {
         const dest = new URL(a.getAttribute("href"), url);
         return dest.searchParams.get("authorid") !== author || dest.searchParams.get("tid") !== tid;
       })) { yield { posts: [], page, count, incomplete: true }; return; }
       const posts = collectCandidatesFromDocument(doc, page);
       yield { posts, page, count };
-      if (first === 1 && (author || bulkJob.scope === "thread")) last = Math.max(last, count);
+      if (author || bulkJob.scope === "thread") last = Math.max(last, count);
       if (page < last) await sleep(350);
     }
   }
 
-  async function* discover(scope) {
-    const start = scope === "page" ? getCurrentPageNumber(bulkJob.tid) : 1;
-    const seen = new Set();
+  async function* discover(scope, cursor) {
+    const start = scope === "page" ? getCurrentPageNumber(bulkJob.tid) : cursor.page;
     for await (const { posts, page, count } of threadPages(start, start)) {
+      cursor.page = page;
       for (const target of posts) {
-        if (!target.rateUrl || seen.has(target.uid)) continue;
-        seen.add(target.uid);
+        if (!target.rateUrl || cursor.seen.has(target.uid)) continue;
+        cursor.seen.add(target.uid);
         yield { ...target, posts: page === 1 && count === 1 ? posts.filter(p => p.uid === target.uid) : null };
       }
     }
@@ -559,6 +560,16 @@
     panel.setAttribute("aria-live", "polite");
     panel.innerHTML = `<div class="chh-bulk-head"><strong>批量评分</strong><button type="button" class="chh-bulk-close" title="关闭" aria-label="关闭">×</button></div><div class="chh-bulk-status">准备中</div><div class="chh-bulk-track"><span></span></div><div class="chh-bulk-counts"></div><button type="button" class="chh-bulk-cancel">停止</button>`;
     document.body.append(panel);
+    const resume = document.createElement("button");
+    resume.type = "button";
+    resume.className = "chh-bulk-resume";
+    resume.textContent = "继续核查下一批";
+    resume.hidden = true;
+    panel.append(resume);
+    resume.addEventListener("click", () => {
+      if (bulkJob || !pausedThread || currentUid() !== pausedThread.me || getThreadId() !== pausedThread.tid) return;
+      startBulkRate("thread").catch(error => updateBulkPanel({ status: error.message, finished: true }));
+    });
     panel.querySelector(".chh-bulk-cancel").addEventListener("click", () => {
       if (bulkJob) bulkJob.cancelled = true;
       updateBulkPanel({ status: "正在停止..." });
@@ -595,7 +606,12 @@
     bulkJob = { cancelled: false, me: currentUid(), tid: getThreadId(), score: normalizeScore(settings.score), notifyAuthor: settings.notifyAuthor };
     ratedAuthors.clear();
     const panel = ensureBulkPanel();
-    panel.querySelector(".chh-review")?.remove();
+    const resumeButton = panel.querySelector(".chh-bulk-resume");
+    resumeButton.hidden = true;
+    const previous = scope === "thread" && pausedThread?.me === bulkJob.me &&
+      pausedThread?.tid === bulkJob.tid ? pausedThread : null;
+    if (!previous) panel.querySelector(".chh-review")?.remove();
+    const cursor = { me: bulkJob.me, tid: bulkJob.tid, page: previous?.page || 1, seen: new Set(previous?.seen) };
     try {
       if (!bulkJob.me || !bulkJob.tid) throw new Error("请在已登录的主题页启动评分");
       bulkJob.scope = scope;
@@ -622,7 +638,7 @@
       const preview = collectCandidatesFromDocument(document, getCurrentPageNumber(bulkJob.tid)).find(p => p.rateUrl);
       if (preview) await authorize(preview);
       if (bulkJob.left === null || bulkJob.left >= bulkJob.score) {
-        for await (const candidate of discover(scope)) {
+        for await (const candidate of discover(scope, cursor)) {
           assertRunning();
           if (bulkJob.left === null) {
             const quote = await authorize(candidate);
@@ -656,8 +672,16 @@
       }
       if (stopReason) report(`任务已停止：${stopReason}`, true);
       else if (bulkJob.left !== null && bulkJob.left < bulkJob.score) report("今日剩余额度不足以再加一人，已结束", true);
-      else if (reviewLimit) report("已达到本次核查人数上限，请查看待核对原因，剩余额度已保留", true);
-      else report("批量评分完成", true);
+      else if (reviewLimit) {
+        if (scope === "thread") {
+          pausedThread = cursor;
+          resumeButton.hidden = false;
+        }
+        report("已达到本次核查人数上限，剩余额度已保留", true);
+      } else {
+        if (scope === "thread") pausedThread = null;
+        report("批量评分完成", true);
+      }
     } catch (error) {
       updateBulkPanel({ status: "任务已停止：" + (error.message || "批量评分失败"), finished: true });
     } finally {
