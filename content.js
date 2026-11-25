@@ -196,12 +196,12 @@
       const date = dates.find(value => value && /\d{4}[-年/.]\d{1,2}[-月/.]\d{1,2}/.test(value)) ||
         dates.find(value => value && /刚刚|今天|昨天|前天|\d+\s*(分钟|小时|天)前/.test(value)) || "";
       const floorLabel = post.querySelector('[id="postnum' + pid + '"]')?.textContent.trim();
-      if (date && /^(?:楼主|樓主|1\s*#)$/.test(floorLabel || "")) bulkJob.threadDate = date;
+      if (date && floorNumber(floorLabel) === 1) bulkJob.threadDate = date;
       if (uid === me) return [];
       const countLink = ratings?.querySelector('strong a[href*="action=viewratings"]');
       const totalText = countLink?.textContent.trim() || "";
       const inlineCount = /^\d+$/.test(totalText) ? Number(totalText) : null;
-      return [{ pid, uid, name, rateUrl, pageNumber, date, visibleRaters, inlineCount }];
+      return [{ pid, uid, name, rateUrl, pageNumber, date, visibleRaters, inlineCount, floor: floorNumber(floorLabel) }];
     });
   }
 
@@ -211,52 +211,101 @@
       url.searchParams.get("page") || "1", 10);
   }
 
-  // Discovery walks the thread lazily. The author-only view independently covers all
-  // of the selected author's replies, including later pages and unrateable floors.
-  async function* threadPages(first, last, author = "") {
+  function floorNumber(label) {
+    if (/^(楼主|樓主)$/.test(label)) return 1;
+    const n = Number(label?.match(/^#?\s*(\d+)\s*(?:#|楼|樓|F)?$/i)?.[1]);
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+  }
+
+  async function readThreadPage(page, author = "") {
     const { tid, me } = bulkJob;
-    for (let page = first; page <= last; page++) {
-      assertRunning();
-      const url = author ? new URL("forum.php", location.origin) :
-        new URL(`thread-${tid}-${page}-1.html`, location.origin);
-      if (author) url.search = new URLSearchParams({ mod: "viewthread", tid, authorid: author, page });
-      const response = await fetch(url, { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(20000) });
-      if (!response.ok) throw new Error(`读取帖子失败（HTTP ${response.status}）`);
-      const doc = new DOMParser().parseFromString(await readForumResponse(response), "text/html");
-      if (currentUid(doc) !== me || !doc.querySelector('table[id^="pid"]')) throw new Error("未能读取已登录的帖子页，请刷新帖子后重试");
-      const count = getPageCount(doc, tid);
-      const active = doc.querySelector(".pg strong")?.textContent.trim();
-      if (active && Number(active) !== page) throw new Error("帖子分页无法核对");
-      if (author && (count > 500 || (count > 1 && !active))) { yield { posts: [], page, count, incomplete: true }; return; }
-      if (author && doc.querySelector(".pg a[href]") && Array.from(doc.querySelectorAll(".pg a[href]")).some(a => {
-        const dest = new URL(a.getAttribute("href"), url);
-        return dest.searchParams.get("authorid") !== author || dest.searchParams.get("tid") !== tid;
-      })) { yield { posts: [], page, count, incomplete: true }; return; }
-      const posts = collectCandidatesFromDocument(doc, page);
-      yield { posts, page, count };
-      if (author || bulkJob.scope === "thread") last = Math.max(last, count);
-      if (page < last) await sleep(350);
+    assertRunning();
+    const url = author ? new URL("forum.php", location.origin) :
+      new URL(`thread-${tid}-${page}-1.html`, location.origin);
+    if (author) url.search = new URLSearchParams({ mod: "viewthread", tid, authorid: author, page });
+    const response = await fetch(url, { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(20000) });
+    if (!response.ok) throw new Error(`读取帖子失败（HTTP ${response.status}）`);
+    const doc = new DOMParser().parseFromString(await readForumResponse(response), "text/html");
+    if (currentUid(doc) !== me || !doc.querySelector('table[id^="pid"]')) throw new Error("未能读取已登录的帖子页，请刷新帖子后重试");
+    const count = getPageCount(doc, tid);
+    const active = doc.querySelector(".pg strong")?.textContent.trim();
+    if (active && Number(active) !== page) throw new Error("帖子分页无法核对");
+    if (author && (count > 500 || (count > 1 && !active))) return { posts: [], page, count, incomplete: true };
+    if (author && doc.querySelector(".pg a[href]") && Array.from(doc.querySelectorAll(".pg a[href]")).some(a => {
+      const dest = new URL(a.getAttribute("href"), url);
+      return dest.searchParams.get("authorid") !== author || dest.searchParams.get("tid") !== tid;
+    })) return { posts: [], page, count, incomplete: true };
+    const posts = collectCandidatesFromDocument(doc, page);
+    return { posts, page, count, doc };
+  }
+
+  const defaultScan = { direction: "forward", unit: "auto", value: null };
+
+  function validateScan(options = defaultScan) {
+    const { direction, unit, value } = options;
+    if (!["forward", "reverse"].includes(direction) || !["auto", "page", "floor"].includes(unit)) throw new Error("整帖扫描选项无效");
+    if (unit !== "auto" && (!Number.isSafeInteger(value) || value < 1)) throw new Error("起点必须是正整数");
+    return { direction, unit, value: unit === "auto" ? null : value };
+  }
+
+  async function locateFloor(target, last) {
+    let low = 1;
+    while (low <= last) {
+      const page = Math.floor((low + last) / 2);
+      const part = await readThreadPage(page);
+      const floors = Array.from(part.doc.querySelectorAll('table[id^="pid"]'), post =>
+        floorNumber(post.querySelector('[id="postnum' + post.id.slice(3) + '"]')?.textContent.trim()));
+      if (!floors.length || floors.some((n, i) => !n || (i && n <= floors[i - 1]))) {
+        throw new Error(`第 ${page} 页的楼号无法核对`);
+      }
+      if (floors.includes(target)) return part;
+      if (target < floors[0]) last = page - 1;
+      else if (target > floors.at(-1)) low = page + 1;
+      else break;
     }
+    throw new Error(`未找到第 ${target} 楼`);
   }
 
   async function* discover(scope, cursor) {
-    const start = scope === "page" ? getCurrentPageNumber(bulkJob.tid) : cursor.page;
-    for await (const { posts, page, count } of threadPages(start, start)) {
+    const { direction, unit, value } = cursor.scan;
+    const reverse = direction === "reverse";
+    let last = getPageCount(document, bulkJob.tid);
+    let firstPart;
+    if (cursor.page === null && unit === "floor") {
+      firstPart = await locateFloor(value, last);
+      cursor.floorPage = firstPart.page;
+    }
+    const start = cursor.page ?? firstPart?.page ?? (unit === "page" ? value : reverse ? last : 1);
+    if (start > last) throw new Error(`起始页 ${start} 超出当前总页数 ${last}`);
+    for (let page = start; page >= 1 && page <= last; page += reverse ? -1 : 1) {
+      const { posts, count } = firstPart ?? await readThreadPage(page);
+      firstPart = null;
+      last = Math.max(last, count);
       cursor.page = page;
-      for (const target of posts) {
-        if (!target.rateUrl || cursor.seen.has(target.uid)) continue;
-        cursor.seen.add(target.uid);
+      for (const target of reverse ? [...posts].reverse() : posts) {
+        if (unit === "floor" && page === cursor.floorPage) {
+          if (!target.floor) throw new Error(`无法核对第 ${page} 页的楼号`);
+          if (reverse ? target.floor > value : target.floor < value) continue;
+        }
+        if ((!target.rateUrl && !reverse) || cursor.seen.has(target.uid)) continue;
+        if (target.rateUrl) cursor.seen.add(target.uid);
         yield { ...target, posts: page === 1 && count === 1 ? posts.filter(p => p.uid === target.uid) : null };
       }
+      if (scope === "page") return;
+      if (reverse ? page > 1 : page < last) await sleep(350);
     }
   }
 
   async function authorPosts(candidate) {
     if (candidate.posts) return candidate.posts;
     const posts = new Map();
-    for await (const part of threadPages(1, 1, candidate.uid)) {
+    let last = 1;
+    for (let page = 1; page <= last; page++) {
+      const part = await readThreadPage(page, candidate.uid);
       if (part.incomplete || part.posts.some(p => p.uid !== candidate.uid)) return [];
       for (const post of part.posts) posts.set(post.pid, post);
+      last = Math.max(last, part.count);
+      if (page < last) await sleep(350);
     }
     return posts.has(candidate.pid) ? Array.from(posts.values()) : [];
   }
@@ -394,11 +443,11 @@
       return { status: "review", known: true, detail: `楼层 ${entry.pid} 曾尝试提交，结果待核对` };
     }
     if (entry || ratedAuthors.has(candidate.uid)) {
-      return { status: "skipped", detail: "已有你的评分" };
+      return { status: "skipped", rated: true, detail: "已有你的评分" };
     }
     const posts = await authorPosts(candidate);
     if (!posts.length) return { status: "review", detail: `楼层 ${candidate.pid}：未能核对该作者的全部回帖` };
-    if (ratedAuthors.has(candidate.uid)) return { status: "skipped", detail: "楼层已有你的评分" };
+    if (ratedAuthors.has(candidate.uid)) return { status: "skipped", rated: true, detail: "楼层已有你的评分" };
     let review;
     for (const post of posts) {
       // A non-empty inline list is complete only when its unique UID count matches the site's total.
@@ -408,7 +457,7 @@
         continue;
       }
       const state = await readRatings(post);
-      if (state === "rated") return { status: "skipped", detail: "已有你的评分" };
+      if (state === "rated") return { status: "skipped", rated: true, detail: "已有你的评分" };
       if (state !== "clear" && !review) review = { status: "review", detail: `楼层 ${post.pid}：${state}` };
       await sleep(300);
     }
@@ -432,7 +481,7 @@
 
   function classifyFailure(html) {
     const text = responseText(html);
-    if (/已经.*评分|评分过|重复评分|不能重复/.test(text)) return { status: "skipped", detail: "已经评分" };
+    if (/已经.*评分|评分过|重复评分|不能重复/.test(text)) return { status: "skipped", rated: true, detail: "已经评分" };
     if (/自己|本人/.test(text) && /评分/.test(text)) return { status: "skipped", detail: "自己的帖子" };
     if (/剩余|超出|不足|上限/.test(text) && /评分|邪恶|积分/.test(text)) return { status: "stop", detail: "今日评分额度不足" };
     if (/登录|权限|无权|用户组/.test(text)) return { status: "stop", detail: "登录状态或权限不足" };
@@ -490,12 +539,20 @@
     bulkJob.left = points;
     const slots = Math.floor(points / bulkJob.score);
     if (!slots) return true;
-    return window.confirm(`今日剩余 ${points} 分，每人 +${bulkJob.score}，本次最多可加 ${slots} 人。\n已评分和待核对的作者会跳过。现在开始吗？`);
+    const rule = bulkJob.reverse ? "倒序遇到已评分作者即停止。" : "已评分作者会跳过。";
+    return window.confirm(`今日剩余 ${points} 分，每人 +${bulkJob.score}，本次最多可加 ${slots} 人。\n${rule}现在开始吗？`);
   }
 
   async function rateCandidate(candidate) {
+    if (bulkJob.left === null && candidate.rateUrl) {
+      const initial = await prepareRate(candidate);
+      if (!initial.form) return initial;
+      if (!confirmBudget(initial.points)) throw new Error("已取消批量评分");
+      if (bulkJob.left < bulkJob.score) return { status: "quota" };
+    }
     const existing = await checkAuthor(candidate);
     if (existing) return existing;
+    if (!candidate.rateUrl) return { status: "skipped", detail: "该楼层不可评分" };
     const quote = await prepareRate(candidate);
     if (!quote.form) return quote;
     if (quote.points !== null) bulkJob.left = Math.min(bulkJob.left, quote.points);
@@ -523,7 +580,11 @@
     const claim = await chrome.runtime.sendMessage({ type: "CHH_RESERVE_RATING",
       me: bulkJob.me, tid: bulkJob.tid, uid: candidate.uid, pid: candidate.pid });
     if (!claim || claim.error) throw new Error(claim?.error || "未取得评分登记结果");
-    if (!claim.reserved) return { status: "skipped", detail: "本账号已登记该作者" };
+    if (!claim.reserved) {
+      const entry = (await chrome.storage.local.get(key))[key];
+      return entry?.state === "confirmed" ? { status: "skipped", rated: true, detail: "本账号已评分" } :
+        { status: "review", known: true, detail: "本账号已有待核对的提交记录" };
+    }
     assertRunning();
     try {
       const submitResponse = await fetch(submitUrl, {
@@ -568,7 +629,7 @@
     panel.append(resume);
     resume.addEventListener("click", () => {
       if (bulkJob || !pausedThread || currentUid() !== pausedThread.me || getThreadId() !== pausedThread.tid) return;
-      startBulkRate("thread").catch(error => updateBulkPanel({ status: error.message, finished: true }));
+      startBulkRate("thread", pausedThread.scan).catch(error => updateBulkPanel({ status: error.message, finished: true }));
     });
     panel.querySelector(".chh-bulk-cancel").addEventListener("click", () => {
       if (bulkJob) bulkJob.cancelled = true;
@@ -592,15 +653,15 @@
     panel.querySelector(".chh-bulk-cancel").hidden = finished;
   }
 
-  async function startBulkRate(scope) {
+  async function startBulkRate(scope, scan) {
     if (!navigator.locks) throw new Error('浏览器不支持跨标签页任务锁');
     return navigator.locks.request('chh-quick-rate', { ifAvailable: true }, async lock => {
       if (!lock) { updateBulkPanel({ status: '其他标签页正在评分', finished: true }); return; }
-      return runBulkRate(scope);
+      return runBulkRate(scope, scan);
     });
   }
 
-  async function runBulkRate(scope) {
+  async function runBulkRate(scope, scan) {
     if (!settings.enabled) throw new Error("扩展当前已停用");
     if (bulkJob) throw new Error("已有批量评分任务正在进行");
     bulkJob = { cancelled: false, me: currentUid(), tid: getThreadId(), score: normalizeScore(settings.score), notifyAuthor: settings.notifyAuthor };
@@ -609,12 +670,16 @@
     const resumeButton = panel.querySelector(".chh-bulk-resume");
     resumeButton.hidden = true;
     const previous = scope === "thread" && pausedThread?.me === bulkJob.me &&
-      pausedThread?.tid === bulkJob.tid ? pausedThread : null;
+      pausedThread?.tid === bulkJob.tid && pausedThread.scan.direction === scan.direction &&
+      pausedThread.scan.unit === scan.unit && pausedThread.scan.value === scan.value ? pausedThread : null;
+    if (scope === "thread") pausedThread = null;
     if (!previous) panel.querySelector(".chh-review")?.remove();
-    const cursor = { me: bulkJob.me, tid: bulkJob.tid, page: previous?.page || 1, seen: new Set(previous?.seen) };
+    const cursor = previous || { me: bulkJob.me, tid: bulkJob.tid, scan,
+      page: scope === "page" ? getCurrentPageNumber(bulkJob.tid) : null, seen: new Set() };
     try {
       if (!bulkJob.me || !bulkJob.tid) throw new Error("请在已登录的主题页启动评分");
       bulkJob.scope = scope;
+      bulkJob.reverse = scan.direction === "reverse";
       bulkJob.left = null;
       const totals = { success: 0, skipped: 0, failed: 0 };
       let done = 0;
@@ -636,15 +701,11 @@
       };
       report("正在读取今日剩余额度");
       const preview = collectCandidatesFromDocument(document, getCurrentPageNumber(bulkJob.tid)).find(p => p.rateUrl);
-      if (preview) await authorize(preview);
+      if (preview && !bulkJob.reverse && scan.unit === "auto") await authorize(preview);
       if (bulkJob.left === null || bulkJob.left >= bulkJob.score) {
         for await (const candidate of discover(scope, cursor)) {
           assertRunning();
-          if (bulkJob.left === null) {
-            const quote = await authorize(candidate);
-            if (!quote.form) { totals.skipped++; done++; continue; }
-          }
-          if (bulkJob.left < bulkJob.score) break;
+          if (bulkJob.left !== null && bulkJob.left < bulkJob.score) break;
           report(`正在处理第 ${candidate.pageNumber} 页的 ${candidate.name}`);
           const result = await rateCandidate(candidate);
           if (result.status === "quota") break;
@@ -654,6 +715,11 @@
             bulkJob.left -= bulkJob.score;
           } else if (result.status === "skipped" || result.status === "review") {
             totals.skipped++;
+            if (bulkJob.reverse && result.rated) {
+              const where = candidate.floor ? `第 ${candidate.floor} 楼` : `第 ${candidate.pageNumber} 页`;
+              stopReason = `${where}的 ${candidate.name} 已加过分`;
+              break;
+            }
             if (result.status === "review") {
               addReview(panel, candidate, result.detail);
               if (!result.known) unresolved++;
@@ -662,8 +728,8 @@
             totals.failed++;
             if (result.status === "stop") { stopReason = result.detail; break; }
           }
-          if (bulkJob.left < bulkJob.score) break;
-          if (unresolved >= Math.floor(bulkJob.left / bulkJob.score)) {
+          if (bulkJob.left !== null && bulkJob.left < bulkJob.score) break;
+          if (unresolved >= Math.floor((bulkJob.left ?? 100) / bulkJob.score)) {
             reviewLimit = true;
             break;
           }
@@ -743,7 +809,10 @@
         sendResponse({ started: false, error: "已有批量评分任务正在进行" });
         return;
       }
-      startBulkRate(message.scope).catch(error => updateBulkPanel({ status: error.message, finished: true }));
+      let scan;
+      try { scan = validateScan(message.scope === "thread" ? message.scan : undefined); }
+      catch (error) { sendResponse({ started: false, error: error.message }); return; }
+      startBulkRate(message.scope, scan).catch(error => updateBulkPanel({ status: error.message, finished: true }));
       sendResponse({ started: true });
     }
   });

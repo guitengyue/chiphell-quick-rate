@@ -12,7 +12,7 @@
       <img src="icons/icon-48.png" alt="">
       <div>
         <h1>快速评分</h1>
-        <p>Chiphell 评分助手 · v1.4.1</p>
+        <p>Chiphell 评分助手 · v1.5.0</p>
       </div>
       <label class="switch" title="启用扩展">
         <input id="enabled" type="checkbox">
@@ -72,6 +72,25 @@
       </label>
     </section>
 
+    <fieldset class="thread-options">
+      <legend>整帖扫描</legend>
+      <label>方向
+        <select id="direction">
+          <option value="forward">从上到下</option>
+          <option value="reverse">从后往前，遇已评分即停</option>
+        </select>
+      </label>
+      <div class="start-position">
+        <label>起点
+          <select id="startUnit">
+            <option value="auto">第一楼</option>
+            <option value="page">指定页码</option>
+            <option value="floor">指定楼层</option>
+          </select>
+        </label>
+        <input id="startValue" aria-label="起始位置" type="number" min="1" step="1" required hidden>
+      </div>
+    </fieldset>
     <div class="actions">
       <button id="ratePage" type="button">本页所有人</button>
       <button id="rateThread" type="button">整帖所有人</button>

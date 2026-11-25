@@ -75,14 +75,30 @@
     }
   });
 
+  const direction = document.querySelector("#direction");
+  const startUnit = document.querySelector("#startUnit");
+  const startValue = document.querySelector("#startValue");
+  function updateScanControls() {
+    startUnit.options[0].textContent = direction.value === "reverse" ? "最后一楼" : "第一楼";
+    startValue.hidden = startUnit.value === "auto";
+    startValue.setAttribute("aria-label", startUnit.value === "floor" ? "起始楼层" : "起始页码");
+  }
+  direction.addEventListener("change", updateScanControls);
+  startUnit.addEventListener("change", updateScanControls);
+
   async function startBulk(scope) {
+    let scan;
+    if (scope === "thread") {
+      if (!startValue.hidden && (!startValue.reportValidity() || !Number.isSafeInteger(startValue.valueAsNumber))) return;
+      scan = { direction: direction.value, unit: startUnit.value, value: startValue.hidden ? null : startValue.valueAsNumber };
+    }
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !/^https:\/\/(www\.)?chiphell\.com\//.test(tab.url || "")) {
       showStatus("请先打开 Chiphell 帖子");
       return;
     }
     try {
-      const result = await chrome.tabs.sendMessage(tab.id, { type: "CHH_BULK_RATE", scope });
+      const result = await chrome.tabs.sendMessage(tab.id, { type: "CHH_BULK_RATE", scope, scan });
       if (!result?.started) {
         showStatus(result?.error || "无法启动批量评分");
         return;
