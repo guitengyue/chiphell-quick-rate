@@ -233,6 +233,54 @@ async function quotaScenario(total, score, expected, opts = {}) {
 }
 
 
+async function scanScenario(scan, expected, { rated, pending, blocked, error, visits, resume } = {}) {
+  const layout = [[1, 2], [3, 4, 5], [6]];
+  const sent = [];
+  const visited = [];
+  const row = n => post(100 + n, 50 + n, date, "42 小时", n !== blocked)
+    .replace("<em id=", `<a id="postnum${100 + n}"><em>${n}</em><sup>#</sup></a><em id=`);
+  const pageHtml = n => header + '<div class="pg"><strong>' + n +
+    '</strong><a href="thread-99-3-1.html">3</a></div>' + layout[n - 1].map(row).join("");
+  const app = setup(pageHtml(1), 1, async (input, opts = {}) => {
+    const url = new URL(input);
+    if (url.pathname.includes("thread-")) {
+      const page = Number(url.pathname.split("-")[2]);
+      visited.push(page);
+      return response(pageHtml(page));
+    }
+    if (url.searchParams.has("authorid")) return response(header + row(Number(url.searchParams.get("authorid")) - 50));
+    const pid = Number(url.searchParams.get("pid"));
+    if (url.searchParams.get("action") === "viewratings") {
+      if (resume && pid === 104) return response("<div>无法核对</div>", true);
+      return response(rated === pid - 100 || sent.includes(pid - 100) ? logs(7) : empty, true);
+    }
+    if (opts.method === "POST") {
+      sent.push(Number(new URLSearchParams(opts.body).get("pid")) - 100);
+      return response("成功", true);
+    }
+    return response(rateForm(pid, resume ? 5 : 100), true);
+  });
+  try {
+    if (pending) app.ext.db["chh-rated:7:99:" + (pending + 50)] = { state: "pending", pid: pending + 100 };
+    app.message({ type: "CHH_BULK_RATE", scope: "thread", scan }, {}, () => {});
+    await waitFor(() => app.w.document.querySelector(".chh-bulk-cancel")?.hidden);
+    if (resume) {
+      assert.deepEqual(sent, []);
+      const button = app.w.document.querySelector(".chh-bulk-resume");
+      assert.equal(button.hidden, false);
+      button.click();
+      await waitFor(() => sent.length && app.w.document.querySelector(".chh-bulk-cancel")?.hidden);
+    }
+    const status = app.w.document.querySelector(".chh-bulk-status").textContent;
+    assert.deepEqual(sent, expected, status);
+    if (error) assert.match(status, error);
+    else if (rated && scan.direction === "reverse") assert.match(status, new RegExp("第 " + rated + " 楼.*已加过分"));
+    else assert.equal(status, "批量评分完成");
+    if (visits) assert.deepEqual(visited, visits);
+  } finally { app.close(); }
+  console.log("PASS scan", JSON.stringify(scan), expected);
+}
+
 async function ui() {
   const lookups = [];
   const html = header + post(1, 8, date, "0 小时") + post(2, 9, date, "") + post(3, 9, date, "") + post(4, 10, date, "") + rateForm(2);
@@ -275,11 +323,40 @@ async function popup() {
   toggle.click();
   assert.equal(saved.blessingsEnabled, false);
   assert.equal(w.document.querySelector("#apply").textContent, "重新填写分数");
+  const messages = [];
+  w.chrome.tabs = { query: async () => [{id: 1, url: "https://www.chiphell.com/thread-99-1-1.html"}],
+    sendMessage: async (_id, msg) => { messages.push(msg); return {started:false}; } };
+  const change = (id, value) => {
+    const control = w.document.querySelector(id);
+    control.value = value;
+    control.dispatchEvent(new w.Event("change"));
+  };
+  change("#direction", "reverse");
+  assert.equal(w.document.querySelector("#startUnit").options[0].textContent, "最后一楼");
+  change("#startUnit", "floor");
+  assert.equal(w.document.querySelector("#startValue").hidden, false);
+  change("#startValue", "0");
+  w.document.querySelector("#rateThread").click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(messages.length, 0);
+  change("#startValue", "52");
+  w.document.querySelector("#rateThread").click();
+  await waitFor(() => messages.length === 1);
+  assert.deepEqual({...messages[0].scan}, {direction:"reverse", unit:"floor", value:52});
   dom.window.close();
   console.log("PASS popup setting and label");
 }
 
 (async () => {
+  await scanScenario({direction:"reverse", unit:"auto"}, [6,5], {rated:4, visits:[3,2]});
+  await scanScenario({direction:"reverse", unit:"auto"}, [], {rated:6, blocked:6, visits:[3]});
+  await scanScenario({direction:"reverse", unit:"page", value:2}, [5,4,3], {rated:2, visits:[2,1]});
+  await scanScenario({direction:"reverse", unit:"floor", value:4}, [4,2], {pending:3, rated:1});
+  await scanScenario({direction:"forward", unit:"floor", value:4}, [4,6], {rated:5});
+  await scanScenario({direction:"forward", unit:"page", value:2}, [3,4,5,6], {visits:[2,3]});
+  await scanScenario({direction:"forward", unit:"page", value:4}, [], {error:/超出/, visits:[]});
+  await scanScenario({direction:"reverse", unit:"floor", value:9}, [], {error:/未找到/});
+  await scanScenario({direction:"reverse", unit:"floor", value:4}, [3], {resume:true, error:/额度不足/});
   for (const mode of ["success", "off", "page2", "hidden", "pagination", "allpages", "old", "month", "malformed", "wrongpager", "badxml", "nodate", "conflict", "network", "challenge", "lost-post"]) await scenario(mode);
   await quotaScenario(100, 5, 20);
   await quotaScenario(100, 5, 20, { skipFirst: true, pages: [1,2] });
